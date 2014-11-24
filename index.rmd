@@ -1,0 +1,90 @@
+---
+title: "Acitivty Prediction"
+author: "Alex Chang"
+date: "Saturday, November 22, 2014"
+output:
+  html_document:
+    keep_md: yes
+---
+
+The purpose of this report is to analyize data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to determine the manner of in which they did the excericse.
+
+```{r, cache=TRUE}
+myData <- read.csv("./data/training.csv")
+
+# Loading librarys
+library(caret);library(rpart);library(randomForest)
+```
+
+
+# Variable Selection
+I start off by looking near zero variance covariates. And select the covariates
+that are both not near zero and not NA.  
+
+```{r, cache=TRUE}
+nsv <- nearZeroVar(myData, saveMetrics=TRUE)
+# exame the data
+nsv
+# Remove near zero variances
+myData <- myData[,c(nsv$nzv==FALSE)]
+# Remove variances that has NA
+myData <- myData[,(colSums(is.na(myData))==0)]
+# Remove covariaates X as it is completely unique and factor variables except classe (this is the predictor)
+myData <- myData[,7:ncol(myData)]
+```
+
+This results in `ncol(myData)-1` of variables. 
+
+# Split data into test set and validation set
+```{r, cache=TRUE}
+inTrain <- createDataPartition(y=myData$classe,p=0.7,list=FALSE)
+training <- myData[inTrain,]; testing <- myData[-inTrain,]
+```
+This created a training set of `dim(training)` and validation set of `dim(testing)`
+
+# Correlation Analysis
+```{r, cache=TRUE}
+M <- abs(cor(training[,-53]))
+diag(M) <- 0
+cor <- which(M > 0.9, arr.ind=T)
+```
+
+Based on the correlation analysis, it reveals that there are `nrow(cor)` variables that are highly correlated to each other.  Therefore, I will use Principal Components Analysis (PCA) as preprocessing step in the model fitting
+
+# Training control
+To cross validate, I used the k-fold cross validation with 3 repeat repetitions.
+```{r, cache=TRUE}
+ctrl <- trainControl(method = "repeatedcv", repeats = 5)
+```
+
+# Model Fitting using Tree & randomForest
+```{r, cache=TRUE}
+modFitTree <- train(classe~.,method="rpart",preProcess="pca",data=training, trControl=ctrl)
+plot (modFitTree$finalModel , uniform=TRUE , main="Classification Tree")
+text(modFitTree$finalModel, use.n=TRUE, all=TRUE, cex=.8)
+modFitTree
+```
+The first learning algorithm that I choose to use is tree.  However, the accuracy based on the model was not promising.  It only has roughly 40% of accuracy.  
+
+The next algorithm that I tried is randrom Forest.  
+```{r, cache=TRUE}
+modFitRF <- randomForest(classe ~., data=training)
+modFitRF
+```
+
+Based on the result of random forest model, it is much better fit than using tree.  There is only 0.44% of error rate.
+
+# Predict the result using test set
+The validation against the testing set is shown below.
+```{r, cache=TRUE}
+# cross validation with tree model
+predictTree <- predict(modFitTree,testing)
+confusionMatrix(predictTree, testing$classe)
+
+# cross validation with random forest model
+predictRF <- predict(modFitRF, testing)
+confusionMatrix(predictRF, testing$classe)
+```
+
+# Conclusion
+Based on the figure above, using tree has a poor prediction rating comparing to random forest algorithm.  Using random forest algorithm, I was able to get 99% of accuracy with testing set while I was only able to get roughly 38% using tree.
